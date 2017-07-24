@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+
+# Author: Joshua Stuckner
+# Date: 2017/06/21
+
+import warnings
+import time
+import glob
+import os
+
+import numpy as np
+from skimage.util import img_as_ubyte
+from scipy.misc import imread, imsave
+import matplotlib.pyplot as plt
+from matplotlib import animation
+from scipy import ndimage
+from PIL import Image
+import cv2
+import h5py
+
+from smart_tem import visualize
+
+
+def uint8(img):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        img = img_as_ubyte(img)
+    return img
+
+
+def load(path):
+    img = imread(path, mode='L')
+    img = uint8(img)
+    return img
+
+
+def float32_to_uint8(image, display_min, display_max):
+    image = np.array(image, copy=True)
+    image.clip(display_min, display_max, out=image)
+    image = np.add(image, -display_min, casting='unsafe')
+    image = np.divide(image, (display_min - display_max + 1) / 256., casting='unsafe')
+    image = image.astype(np.uint8)
+    return image
+
+def uint16_to_uint8(image, display_min, display_max):
+    image = np.array(image, copy=True)
+
+    image.clip(display_min, display_max, out=image)
+    #image -= display_min
+    image = np.add(image, -display_min, casting='unsafe')
+    #image //= (display_min - display_max + 1) / 256.
+    image = np.divide(image, (display_min - display_max + 1) / 256., casting='unsafe')
+
+    image = image.astype(np.uint8)
+    return image
+
+# def save_image(im, save_name, normalize=False):
+#     std = im.std()
+#     vmin = im.min() + std / 3
+#     vmax = im.max() - std / 3
+#     if normalize:
+#         imsave(save_name, )
+#         ims.append([plt.imshow(frames[:, :, i], vmin=vmin, vmax=vmax,
+#                                cmap=plt.cm.gray, animated=True)])
+#     else:
+#         ims.append([plt.imshow(frames[:, :, i], vmin=0, vmax=255,
+#                                cmap=plt.cm.gray, animated=True)])
+
+def save_movie(frames, save_name, fps=20, bit_rate=-1, normalize=False,
+               sharpen=False):
+    """
+    Saves a movie of the images in frames.
+
+    Parameters
+    ----------
+    frames : ndarray (3D)
+        Contains images to create a movie from.
+    fps : double, optional
+        Frames per second of movie.  Defaults is 20.
+    save_name : string
+        Path to save the movie.
+    bit_rate : int
+        bits per second of movie.  See matplotlib.animation.writers
+    """
+
+    print('Saving movie...', end=' ')
+    start = time.time()
+    fig = plt.figure()
+    plt.axis('off')
+    plt.gca().set_position([0, 0, 1, 1])
+    ims = []
+    _, _, num_frames = frames.shape
+    #For normalizing
+    if normalize:
+        std = frames.std()
+        vmin = frames.min()+std/2
+        vmax = frames.max()-std/2
+    for i in range(num_frames):
+        #visualize.update_progress(i / num_frames)
+        if sharpen:
+            sigma = 1
+            alpha = 0.5
+            blurred = ndimage.gaussian_filter(frames[:,:,i], sigma)
+            filter_blurred = ndimage.gaussian_filter(blurred, 1)
+            frames[:,:,i] = blurred + alpha * (blurred - filter_blurred)
+        if normalize:
+            ims.append([plt.imshow(frames[:,:,i], vmin=vmin, vmax=vmax,
+                                   cmap=plt.cm.gray, animated=True)])
+        else:
+            ims.append([plt.imshow(frames[:,:,i], vmin=0, vmax=255,
+                                   cmap=plt.cm.gray, animated=True)])
+
+    ani = animation.ArtistAnimation(fig, ims, fps / 1000, True, fps / 1000)
+    writer = animation.writers['ffmpeg'](fps=fps, bitrate=bit_rate,
+                                         extra_args=['-vcodec', 'libx264',
+                                                     '-pix_fmt', 'yuv420p'])
+    ani.save(save_name, writer=writer)
+    print('Done, took', round(time.time() - start, 2), 'seconds.')
+
+def save_images(frames, folder, normalize=False):
+    _,_, num_frames = frames.shape
+    if folder[:-1] != '/':
+        folder = ''.join((folder,'/'))
+    
+    for i in range(num_frames):
+        if i < 10:
+            space = '00'
+        elif i < 100:
+            space = '0'
+        else:
+            space = ''
+        im_path = ''.join((folder, space,str(i),".tif"))
+        imsave(im_path,frames[:,:,i])
+
+def get_file_names(folder, ftype=None):
+    if folder[-1] != '/':
+        folder = ''.join((folder, '/'))
+    if ftype is not None and ftype[0] == '.':
+        ftype = ftype[1:]                        
+    if ftype is None:
+        files = os.listdir(folder)
+        out = []
+        for file in files:
+            out.append(''.join((folder,file)))
+        return out
+    else:
+        return glob.glob(''.join((folder, '*.', ftype)))
+
+def rename_image_clipper(folder):
+    files = os.listdir(folder)
+    for file in files:
+        os.rename(''.join((folder,file)),
+                  ''.join((folder, file.split('.')[0], '.png')))
+
+def create_folder(folder):
+    # Checks to see if the directory exists and creates it if it doesn't.
+    try:
+        os.stat(folder)
+    except:
+        os.mkdir(folder)
+    
+def frames_from_hdf5(file):
+    """
+    Returns the space-time cube array of the movie data in an hdf5 file.
+    """
+    # Load all images
+    print('Loading frames...', end=' ')
+    start = time.time()
+    f = h5py.File(file, "r")
+    frames = f['data'][()]
+    print('Done, took', round(time.time() - start, 2), 'seconds.')
+    return frames
+
+
+def dm_to_tiff(input_folder, output_folder, convert_sub_folders=False,
+               subset=None):
+    """
+    Converts dm4 files to tiff format.
+    convert_sub_folder : converts files in all subfolders reccursively.
+    subset : (a,b) only converts files between a and b (sorted alphabetically)
+    """
+
+    print('Converting Files...', end=' ')
+    start = time.time()
+    
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import hyperspy.api as hs
+        
+    # Create output folder.
+    create_folder(output_folder)
+
+    # Get list of dm files.
+    if convert_sub_folders:
+        file_paths = glob.glob(''.join((input_folder, '/**/*.dm*')),
+                               recursive=True)
+    else:
+        file_paths = glob.glob(''.join((input_folder, '/*.dm*')))
+
+    if subset is not None:
+        file_paths = file_paths[subset[0]:subset[1]]
+
+    for i, path in enumerate(file_paths):
+        signal = hs.load(path)
+        image_data = signal.data
+        #print(signal.original_metadata)
+
+        # get the contrast limits from the file
+        max_trim_percent = signal.original_metadata['DocumentObjectList']['TagGroup0']['ImageDisplayInfo']['EstimatedMaxTrimPercentage']
+        min_trim_percent = signal.original_metadata['DocumentObjectList']['TagGroup0']['ImageDisplayInfo']['EstimatedMinTrimPercentage']
+        #print(np.average(image_data))
+        display_max = np.percentile(image_data, 100-min_trim_percent*100)
+        display_min = np.percentile(image_data, min_trim_percent*100)
+        #print(display_min, display_max)
+        image_data = signal.data
+
+        if image_data.dtype == np.uint16:
+            image_data = uint16_to_uint8(
+                image_data, image_data.min(), image_data.max())
+        elif image_data.dtype == np.float32:
+            image_data = float32_to_uint8(
+                image_data, 0, 8000)
+            
+        print(display_min, display_max, np.average(image_data))
+        fname = path.split('\\')[-1]
+        fname = fname.split('.dm')[0]
+        output_path = ''.join((output_folder, '/', fname, '.tif'))
+        signal.save(output_path)
+        imsave(output_path, image_data)
+
+
+    print('Done, took', round(time.time() - start, 2), 'seconds.')
+                                
