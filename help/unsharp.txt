@@ -1,0 +1,26 @@
+UNSHARP MASK
+
+Increases the apparent contrast along edges in the image.  For visualization
+purposes only.  Should be done last (even after level balance.)
+
+Sigma:
+Affects the size of the edges to be enhanced or how wide the edge rims
+become, so a smaller radius enhances smaller-scale detail. Higher Radius 
+values can cause halos at the edges, a detectable faint light rim around 
+objects. Fine detail needs a smaller Radius. Radius and Amount interact; 
+reducing one allows more of the other.
+
+Threshold:
+Controls the minimum brightness change that will be sharpened or how far 
+apart adjacent tonal values have to be before the filter does anything. This
+lack of action is important to prevent smooth areas from becoming speckled. 
+The threshold setting can be used to sharpen more-pronounced edges, while 
+leaving subtler edges untouched. Low values should sharpen more because 
+fewer areas are excluded. Higher threshold values exclude areas of lower 
+contrast.
+
+Amount:
+Should be a value between 0.1 and 0.9.  Controls the magnitude of each 
+overshoot (how much darker and how much lighter the edge borders become). 
+This can also be thought of as how much contrast is added at the edges. It 
+does not affect the width of the edge rims.

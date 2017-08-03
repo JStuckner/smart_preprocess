@@ -1,0 +1,9 @@
+SLICE DATASET
+
+Trims the number of frames in the dataset.
+
+From:
+Starting frame, inclusive (0 is first frame).
+
+To:
+End frame, non-inclusive.

@@ -6,16 +6,17 @@
 import time
 import os
 import math
+import sys
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import animation
-from tkinter import *
+import tkinter as tk
 from PIL import Image, ImageTk
 from matplotlib.colors import Normalize
-import tkinter as tk
 
-from smart_tem import inout
+
+from smart_preprocess import inout
 
 class Image_Viewer(tk.Toplevel):
     def __init__(self, image_set, normalize=False, main=True):
@@ -46,8 +47,8 @@ class Image_Viewer(tk.Toplevel):
         self.oldWidth, self.oldHeight = self.tk.winfo_width(), self.tk.winfo_height()
 
         # Create Canvas
-        self.canvas = Label(self.tk, width=800, height=600)
-        self.canvas.pack(fill=BOTH, expand=YES)
+        self.canvas = tk.Label(self.tk, width=800, height=600)
+        self.canvas.pack(fill=tk.BOTH, expand=tk.YES)
         self.canvas.configure(background='black')
 
         self.tk.bind("<Configure>", self.update)

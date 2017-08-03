@@ -1,0 +1,10 @@
+GAUSSIAN STACK
+
+Stacks the frames in a "moving weighted average" sort of way where the
+weight of each frame is determened by a gaussian distribution with a 
+standard deviation of sigma.  Frames that are further away are weighted
+less heavily.
+
+Sigma:
+The standard deviation of the Gaussian kernal (units of frames).  A larger 
+number leads to more stacking.

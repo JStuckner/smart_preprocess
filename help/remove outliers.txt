@@ -1,0 +1,14 @@
+REMOVE OUTLIERS
+
+Removes extremely dark and extremely bright speckled pixels (known as salt
+and pepper noise).  Works by replacing each extreme pixel with the median
+value of pixels within a neighborhood of pixels.
+
+Percent:
+Upper bottom and lower percentile of pixels to replace.  (Value is in % so
+inputting 0.1 means 0.1% not 1%).
+
+Size:
+Size of window [pixels^2] to find a median value from.  A size of 3 means
+that a 3x3 window centered on the outlier pixel will be used to find a
+median value.

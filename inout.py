@@ -10,7 +10,8 @@ import os
 
 import numpy as np
 from skimage.util import img_as_ubyte
-from scipy.misc import imread, imsave
+import scipy.misc
+#from scipy.misc import imread, imsave
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from scipy import ndimage
@@ -18,7 +19,10 @@ from PIL import Image
 import cv2
 import h5py
 
-from smart_tem import visualize
+
+from smart_preprocess.dmreader import digital_micrograph as dm
+
+from smart_preprocess import visualize
 
 
 def uint8(img):
@@ -29,28 +33,38 @@ def uint8(img):
 
 
 def load(path):
-    img = imread(path, mode='L')
-    img = uint8(img)
+    dmtypes = ['.dm3', '.dm4']
+    if any(t in path for t in dmtypes):
+        return dm_to_npy(path)
+    img = scipy.misc.imread(path, mode='I')
+    display_max = np.percentile(img, 99.9)
+    display_min = np.percentile(img, 0.1)
+    img = float32_to_uint8(img, display_min, display_max)
     return img
 
 
 def float32_to_uint8(image, display_min, display_max):
     image = np.array(image, copy=True)
-    image.clip(display_min, display_max, out=image)
+    image = image.clip(display_min, display_max, out=image)
+##    plt.imshow(image, cmap=plt.cm.gray)
+##    plt.show()
     image = np.add(image, -display_min, casting='unsafe')
-    image = np.divide(image, (display_min - display_max + 1) / 256., casting='unsafe')
+    image = np.divide(image, (display_max + 1 - display_min) / 256, casting='unsafe')
+
+##    plt.imshow(image, cmap=plt.cm.gray)
+##    plt.show()
     image = image.astype(np.uint8)
+##    plt.imshow(image, cmap=plt.cm.gray)
+##    plt.show()
     return image
 
 def uint16_to_uint8(image, display_min, display_max):
     image = np.array(image, copy=True)
-
-    image.clip(display_min, display_max, out=image)
+    image = image.clip(display_min, display_max, out=image)
     #image -= display_min
     image = np.add(image, -display_min, casting='unsafe')
     #image //= (display_min - display_max + 1) / 256.
-    image = np.divide(image, (display_min - display_max + 1) / 256., casting='unsafe')
-
+    image = np.divide(image, (display_max + 1 - display_min) / 256, casting='unsafe')
     image = image.astype(np.uint8)
     return image
 
@@ -130,7 +144,7 @@ def save_images(frames, folder, normalize=False):
         else:
             space = ''
         im_path = ''.join((folder, space,str(i),".tif"))
-        imsave(im_path,frames[:,:,i])
+        scipy.misc.imsave(im_path,frames[:,:,i])
 
 def get_file_names(folder, ftype=None):
     if folder[-1] != '/':
@@ -171,6 +185,27 @@ def frames_from_hdf5(file):
     print('Done, took', round(time.time() - start, 2), 'seconds.')
     return frames
 
+def dm_to_npy(dm_path):
+    """
+    Converts a dm3 or dm4 image to a uint8 numpy array with a contrast limit
+    suggested in the dm file.
+    """
+    # Load the dm4 file and extract the image data.
+    signal = dm.file_reader(dm_path)[0]
+    image_data = signal['data']
+    # get the contrast limits from the file
+    max_trim_percent = signal['original_metadata']['DocumentObjectList']['TagGroup0']['ImageDisplayInfo']['EstimatedMaxTrimPercentage']
+    min_trim_percent = signal['original_metadata']['DocumentObjectList']['TagGroup0']['ImageDisplayInfo']['EstimatedMinTrimPercentage']
+    display_max = np.percentile(image_data, 100-min_trim_percent*100)
+    display_min = np.percentile(image_data, min_trim_percent*100)
+    # convert to uint8
+    if image_data.dtype == np.uint16:
+        image_data = uint16_to_uint8(
+            image_data, display_min, display_max)
+    elif image_data.dtype == np.float32:
+        image_data = float32_to_uint8(
+            image_data, display_min, display_max)
+    return image_data
 
 def dm_to_tiff(input_folder, output_folder, convert_sub_folders=False,
                subset=None):
@@ -183,9 +218,7 @@ def dm_to_tiff(input_folder, output_folder, convert_sub_folders=False,
     print('Converting Files...', end=' ')
     start = time.time()
     
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        import hyperspy.api as hs
+    
         
     # Create output folder.
     create_folder(output_folder)
@@ -201,32 +234,31 @@ def dm_to_tiff(input_folder, output_folder, convert_sub_folders=False,
         file_paths = file_paths[subset[0]:subset[1]]
 
     for i, path in enumerate(file_paths):
-        signal = hs.load(path)
-        image_data = signal.data
-        #print(signal.original_metadata)
+        #signal = hs.load(path)
+        signal = dm.file_reader(path)[0]
+        image_data = signal['data']
 
         # get the contrast limits from the file
-        max_trim_percent = signal.original_metadata['DocumentObjectList']['TagGroup0']['ImageDisplayInfo']['EstimatedMaxTrimPercentage']
-        min_trim_percent = signal.original_metadata['DocumentObjectList']['TagGroup0']['ImageDisplayInfo']['EstimatedMinTrimPercentage']
-        #print(np.average(image_data))
+        max_trim_percent = signal['original_metadata']['DocumentObjectList']['TagGroup0']['ImageDisplayInfo']['EstimatedMaxTrimPercentage']
+        min_trim_percent = signal['original_metadata']['DocumentObjectList']['TagGroup0']['ImageDisplayInfo']['EstimatedMinTrimPercentage']
         display_max = np.percentile(image_data, 100-min_trim_percent*100)
         display_min = np.percentile(image_data, min_trim_percent*100)
-        #print(display_min, display_max)
-        image_data = signal.data
 
         if image_data.dtype == np.uint16:
             image_data = uint16_to_uint8(
-                image_data, image_data.min(), image_data.max())
+                image_data, display_min, display_max)
         elif image_data.dtype == np.float32:
             image_data = float32_to_uint8(
-                image_data, 0, 8000)
+                image_data, display_min, display_max)
             
-        print(display_min, display_max, np.average(image_data))
         fname = path.split('\\')[-1]
         fname = fname.split('.dm')[0]
         output_path = ''.join((output_folder, '/', fname, '.tif'))
-        signal.save(output_path)
-        imsave(output_path, image_data)
+        #signal.save(output_path)
+        scipy.misc.imsave(output_path, image_data)
+
+        #scipy.misc.toimage(image_data, cmin=0, cmax=255).save(output_path)
+
 
 
     print('Done, took', round(time.time() - start, 2), 'seconds.')

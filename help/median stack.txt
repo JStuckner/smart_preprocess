@@ -1,0 +1,8 @@
+MEDIAN STACK
+
+Each pixel in each frame is replaced with the median value of the pixels at
+the same location in the surrounding frames.
+
+Frames:
+Number of frames to stack.  A size of 5 means that the median value of the
+pixels in 5 frames will be used.

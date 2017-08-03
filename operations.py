@@ -20,8 +20,8 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 
-from smart_tem import inout
-from smart_tem import visualize
+from smart_preprocess import inout
+from smart_preprocess import visualize
 
 
 # update_progress() : Displays or updates a console progress bar
@@ -88,26 +88,28 @@ def median_stacking(image_set, size=3):
     print('Done, took', round(time.time() - start, 2), 'seconds.')
     return out
 
-def median(image_set, sigma=None):
+def median(image_set, size=None):
     """
-    Applies a gaussian filter to the image set.
+    Applies a median filter to the image set.
 
     This function is a wrapper around scipy.ndimage.filters.median_filter
     """
-    if sigma is None:
-        print('Please set a filter radius (sigma).  Defaulting to sigma = 1.')
-        sigma = 1
+    if size is None:
+        print('Please set a filter size.  Defaulting to size = 3.')
+        size = 3
 
-    print('Applying median filter.')
-    update_progress(0)
-    out = []
-    for i, im in enumerate(image_set):
-        out.append(filters.median_filter(im, size=sigma*2+1))
-        update_progress((i+1)/len(image_set))
+    print('Applying median filter...', end=' ')
+    start = time.time()
 
+    try:
+        out = filters.median_filter(image_set, size=(size, size, 1))
+    except RuntimeError: # When there is only one frame
+        out = filters.median_filter(image_set, size=(size, size))
+
+    print('Done, took', round(time.time() - start, 2), 'seconds.')
     return out
 
-def down_sample(image_set, pixel_size, d=0.1, nyquist=3, source_sigma=0.5):
+def down_sample(image_set, pixel_size, nyquist=3, d=0.1, source_sigma=0.5):
     """
     This function performs Gaussian downsampling on the frames.  The goal is
     to resample the image to a pixel size that is between 2.3 and 3 times
@@ -168,7 +170,7 @@ def down_sample(image_set, pixel_size, d=0.1, nyquist=3, source_sigma=0.5):
         return out
 
 
-def tv_chambolle(image_set, weight, eps=0.0002, max_stacking=None):
+def tv_chambolle(image_set, weight, max_stacking=None, eps=0.0002):
     """Performs chambolle filtering using the skimage library.
     :param image_set:
     :param weight:
@@ -176,7 +178,7 @@ def tv_chambolle(image_set, weight, eps=0.0002, max_stacking=None):
     :param max_stacking:
     :return:
     """
-    print('Applying Total Variation Chambolle filter...', end=' ')
+    print('Applying Total Variation Chambolle filter...', end=' ', flush=True)
     start = time.time()
 
     try:
@@ -189,7 +191,7 @@ def tv_chambolle(image_set, weight, eps=0.0002, max_stacking=None):
         print("Performing filter on the single frame passed...", end=" ")
         out = inout.uint8(restoration.denoise_tv_chambolle(
             image_set, weight=weight, eps=eps))
-    elif max_stacking is None:
+    elif max_stacking is None or max_stacking < 0:
         out = inout.uint8(restoration.denoise_tv_chambolle(
             image_set, weight=weight, eps=eps))
     elif not isinstance(max_stacking, int):
@@ -272,6 +274,8 @@ def normalize(im, std=-1):
         im = np.clip(im, 0.0, 255.0)
         im = im.astype('uint8')
 
+    print('Levels balanced.')
+
     return im
     
 def get_background_mask(image_set):
@@ -322,16 +326,37 @@ def get_background_mask(image_set):
 
     
 def unsharp_mask(im, sigma, threshold, amount):
+    print('Applying Unsharp Mask...', end=' ')
+    start = time.time()
+    try:
+        rows, cols, num_frames = im.shape
+    except ValueError:
+        rows, cols = im.shape
+        num_frames = 1
+
     if amount > 0.9 or amount < 0.1:
         print("'amount' should be between 0.1 and 0.9!")
-    blurred = cv2.GaussianBlur(im, (sigma, sigma), 0)
-    lowContrastMask = abs(im - blurred) < threshold
-    sharpened = im*(1+amount) + blurred*(-amount)
-    locs = np.where(lowContrastMask != 0)
-    out = im.copy()
-    out[locs[0], locs[1]] = sharpened[locs[0], locs[1]]
-    return out
-    
+        
+    if num_frames == 1:
+        blurred = filters.gaussian_filter(im, (sigma, sigma))
+        lowContrastMask = abs(im - blurred) < threshold
+        sharpened = im*(1+amount) + blurred*(-amount)
+        locs = np.where(lowContrastMask != 0)
+        out = im.copy()
+        out[locs[0], locs[1]] = sharpened[locs[0], locs[1]]
+        print('Done, took', round(time.time() - start, 2), 'seconds.')
+        return out
+
+    else:
+        out = im.copy()
+        blurred = filters.gaussian_filter(im, (sigma, sigma, 0))
+        for i in range(num_frames):
+            lowContrastMask = abs(im[:,:,i] - blurred[:,:,i]) < threshold
+            sharpened = im[:,:,i]*(1+amount) + blurred[:,:,i]*(-amount)
+            locs = np.where(lowContrastMask != 0)
+            out[:,:,i][locs[0], locs[1]] = sharpened[locs[0], locs[1]]
+        print('Done, took', round(time.time() - start, 2), 'seconds.')
+        return out
 
 def blur_background(im, sigma=None, thresh=None,
                     small1=None, dil_rad=None,
@@ -377,3 +402,34 @@ def blur_background(im, sigma=None, thresh=None,
     blur[notmask[0], notmask[1], :] = allBlur[notmask[0], notmask[1], :]
 
     return blur
+
+def remove_outliers(image_set, percent=0.1, size=3):
+    """
+    Replaces pixels in the top and bottom percentage of the pixels in each
+    image with a median pixel value of the pixels in a window of
+    size by size pixels.
+    """
+    print('Removing outliers...', end=' ')
+    start = time.time()
+
+    try:
+        rows, cols, num_frames = image_set.shape
+    except ValueError:
+        rows, cols = image_set.shape
+        num_frames = 1
+
+    for i in range(num_frames):
+        im = image_set[:,:,i]
+        med = filters.median_filter(im, size=size)
+        low_outlier = np.percentile(im, percent)
+        high_outlier = np.percentile(im, 100-percent)
+        mask = np.zeros((rows,cols), dtype='bool')
+        mask[im >= high_outlier] = 1
+        mask[im <= low_outlier] = 1
+        im[mask == 1] = med[mask==1]
+
+    print('Done, took', round(time.time() - start, 2), 'seconds.')
+    return image_set
+        
+        
+

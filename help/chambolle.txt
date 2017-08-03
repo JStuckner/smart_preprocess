@@ -1,0 +1,13 @@
+CHAMBOLLE DENOISING
+
+Removes noise from the dataset by reducing the variation within the images
+while preserving edges in the original image.
+
+Weight: 
+Higher weight removes more noise but causes more blurring. Lower weight
+removes less noise but preserves the original image better.
+
+Stacks:
+How many frames are allowed to be stacked together.  Must be an odd integer.
+Setting this to a negative value allows unlimited stacking (usually 5 or so
+frames for a weight of 0.1).

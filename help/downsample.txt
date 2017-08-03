@@ -1,0 +1,14 @@
+DOWNSAMPLE
+
+Resamples the image to be in line with the Nyquist-Shannon sampling theorem.
+This operation should be performed before any bluring or denoising.  This
+operation assumes that the point to point resolution of the microscope is
+0.1 nm (can be modified by adjusting the d value in operations.downsample).
+
+Pixel Size:
+The size of each pixel in nanometers.
+
+Nyquist:
+The targer number of pixels per point to point resolution of the microscope.
+According to the Nyquist-Shannon theorum, this should be between 2.3 and 3.
+Lower numbers lead to more downsampling and a more "pixelated" image.

@@ -1,0 +1,8 @@
+GAUSSIAN BLUR
+
+Gives the image a blurred look using a Gaussian filter.  This is similar to
+a bandpass filter, but is better at preserving edges.
+
+Sigma:
+The standard deviation of the Gaussian kernal (radius).  This can be
+pictured as the strength of the blurring.

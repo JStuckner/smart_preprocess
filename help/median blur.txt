@@ -1,0 +1,9 @@
+MEDIAN BLUR
+
+Replaces each pixel with the medial value of pixels within a window 
+centered on the pixel.
+
+Size:
+Size of window [pixels x pixels] to find a median value from.  A size of
+3 means that a 3x3 window centered on the outlier pixel will be used to
+find a median value.

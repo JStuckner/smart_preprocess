@@ -1,0 +1,9 @@
+LEVEL BALANCE
+
+Scales the data to increase the apparent contrast for display purposes.  
+This should be done last.
+
+Clip:
+Clips the data to the input value times the standard deviation of the data.
+Lower numbers will lead to more clipping.  Setting a negative value will
+clip the data to the minimum and maximum values.
