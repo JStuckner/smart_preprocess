@@ -6,21 +6,82 @@
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import messagebox
+from tkinter.font import Font
 import os
 import glob
 import numpy as np
-import cv2
 import time
 import h5py
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import string
 
-from smart_tem import inout
-from smart_tem import operations
-from smart_tem import visualize
+from smart_preprocess import inout
+from smart_preprocess import operations
+from smart_preprocess import visualize
 
 
+DATA = None
+UNDO = None
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+def make_undo():
+    global DATA
+    global UNDO
+    UNDO = DATA.copy()
+
+def undo(data):
+    global UNDO
+    print('Undone.')
+    temp = UNDO.copy()
+    UNDO = data.copy()
+    return temp
+    
+class CreateToolTip(object):
+    '''
+    create a tooltip for a given widget
+    '''
+    def __init__(self, widget, text='widget info'):
+        self.widget = widget
+        self.text = text
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.close)
+        self.timer = []
+        self.tw = None
+        
+    def enter(self, event=None):
+        self.timer = self.widget.after(700, self.display)
+        
+    def display(self):
+        x = y = 0
+        x, y, cx, cy = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 20
+        # creates a toplevel window
+        self.tw = tk.Toplevel(self.widget)
+        # Leaves only the label and removes the app window
+        self.tw.wm_overrideredirect(True)
+        self.tw.wm_geometry("+%d+%d" % (x, y))
+        label = tk.Label(self.tw, text=self.text, justify='left',
+                       background='#ffffe6', relief='solid', borderwidth=1,
+                       font=("times", "10", "normal"))
+        label.pack(ipadx=5, ipady=3)
+        
+    def close(self, event=None):
+        if self.tw is not None:
+            self.tw.destroy()
+        self.widget.after_cancel(self.timer)
+
+            
 def user_input_good(input_string, allowed, boxName=''):
 
     # First make sure the box isn't empty
@@ -33,6 +94,7 @@ def user_input_good(input_string, allowed, boxName=''):
     integer = ['integer', 'Int', 'int', 'Integer', '0']
     decimal = ['decimal', 'Dec', 'Decimal', 'dec', '2', 'float']
     signed_integer = ['sinteger', 'sInt', 'sint', 'sInteger', '1']
+    even_signed_integer = ['esint']
 
     if str(allowed) in integer:
         bad = ''.join((string.ascii_letters, string.punctuation,
@@ -68,7 +130,23 @@ def user_input_good(input_string, allowed, boxName=''):
             return False
         else:
             return True
-          
+
+    if str(allowed) in even_signed_integer:
+        bad = ''.join((string.ascii_letters, string.punctuation,
+                       string.whitespace))
+        bad = ''.join(c for c in bad if c not in '-')
+        if any((c in bad) for c in input_string) or '-' in input_string[1:]:
+            messagebox.showwarning(
+                "Input error",
+                ''.join((boxName, ' should be an integer value')))
+            return False
+        elif int(input_string) % 2 == 0 and int(input_string) >= 0:
+            messagebox.showwarning(
+                "Input error",
+                ''.join(('Stacking should be an odd integer')))
+            return False
+        else:
+            return True       
 
 class selectRect(object):
     """
@@ -164,7 +242,7 @@ class makeHDF5_GUI(tk.Toplevel):
         self.convert()
 
     def convert(self):
-        ftypes = ['tif', 'jpg', 'tiff', 'bmp', 'png']
+        ftypes = ['tif', 'jpg', 'tiff', 'bmp', 'png', 'dm4', 'dm3']
         # Get the image paths
         if self.varSubfolder.get():
             for ftype in ftypes:
@@ -231,22 +309,25 @@ class makeHDF5_GUI(tk.Toplevel):
             image = inout.load(path)
             frames[:, :, i] = image[row_min:row_max, col_min:col_max]
         print('Done, took', round(time.time() - start, 2), 'seconds.')
+        
 
         # Convert to hdf5 file
         print('Converting to hdf5 file...', end=' ')
         start = time.time()
-        f = h5py.File(self.output_path, 'w')
-        dset = f.create_dataset("data", (rows,cols,num_frames), compression='lzf', data=frames)
-        f.close()
+        with h5py.File(self.output_path, 'w') as f:
+            #dset = f.create_dataset("data", (rows,cols,num_frames), compression='lzf', data=frames)
+            dset = f.create_dataset("data", (rows,cols,num_frames), data=frames)
+
         print('Done, took', round(time.time() - start, 2), 'seconds.')
 
         self.cancel()
             
 class MainApp(tk.Frame):
-
     def __init__(self, master=None):
         tk.Frame.__init__(self, master)
         self.pack()
+
+        global DATA
 
         # Sizing variables
         pad=5
@@ -255,7 +336,6 @@ class MainApp(tk.Frame):
         butHeight = 2
 
         # Data variables
-        self.data = None
         self.rows = 0
         self.cols = 0
         self.num_frames = 0
@@ -277,11 +357,17 @@ class MainApp(tk.Frame):
         
         # Create widgits.
         # IO frame
-        self.butMakeHDF5 = tk.Button(self.frameIO, text="Images to HDF5",
+        self.butMakeHDF5 = tk.Button(self.frameIO, text="Create HDF5",
                                      command=makeHDF5,
                                      width=butWidth, height=butHeight)
-        self.butLoadHDF5 = tk.Button(self.frameIO, text="Load HDF5 file",
+        self.butLoadHDF5 = tk.Button(self.frameIO, text="Load HDF5",
                                      command=self.loadHDF5,
+                                     width=butWidth, height=butHeight)
+        self.butSaveMovie = tk.Button(self.frameIO, text="Save Movie",
+                                     command=self.saveMovie,
+                                     width=butWidth, height=butHeight)
+        self.butSaveImages = tk.Button(self.frameIO, text="Save Images",
+                                     command=self.saveImages,
                                      width=butWidth, height=butHeight)
         # Visualize frame
         self.butViewData = tk.Button(self.frameVisualization,
@@ -292,33 +378,86 @@ class MainApp(tk.Frame):
                                       text="Play Movie",
                                       command=self.playMovie,
                                       width=butWidth, height=butHeight)
+
+        # Operation frames
+        self.opsList = ['Data',
+                        'Operations',
+                        'Filters',
+                        'Stacking',
+                        'Other']
+        self.opsDict = {}
+        for i in self.opsList:
+            self.opsDict[i] = tk.LabelFrame(self, text=i,width=500, height=100)
+            
         # Operations Frame.
-        self.frame_slice = tk.Frame(self.frameOperations)
-        self.but_slice = tk.Button(self.frame_slice,
-                                      text="Slice dataset",
-                                      command=self.slice,
-                                      width=butWidth, height=1)
-        self.lab_slice_from = tk.Label(self.frame_slice,
-                                           text="From:")
-        self.txt_slice_from = tk.Entry(self.frame_slice, width=5,
-                                           textvariable=self.var_slice_from)
-        self.lab_slice_to = tk.Label(self.frame_slice,
-                                           text="To:")
-        self.txt_slice_to = tk.Entry(self.frame_slice, width=5,
-                                          textvariable=self.var_slice_to)
-        self.frameChambolle = tk.Frame(self.frameOperations)
-        self.butChambolle = tk.Button(self.frameChambolle,
-                                      text="Chambolle denoise",
-                                      command=self.chambolle,
-                                      width=butWidth, height=1)
-        self.labChambolleWeight = tk.Label(self.frameChambolle,
-                                           text="Weight:")
-        self.txtChambolleWeight = tk.Entry(self.frameChambolle, width=5,
-                                           textvariable=self.varChambolleWeight)
-        self.labChambolleStack = tk.Label(self.frameChambolle,
-                                           text="Stacking:")
-        self.txtChambolleStack = tk.Entry(self.frameChambolle, width=5,
-                                          textvariable=self.varChambolleStacking)
+        self.ops = []
+        
+        self.ops.append(OperationFrame(
+            self.opsDict['Data'], 'Undo',
+            undo,
+            help_text = None))
+        
+        self.ops.append(OperationFrame(
+            self.opsDict['Data'], 'Slice dataset',
+            slice_dataset,
+            ['From:', 'To:'], ['int','int'], ['', ''],
+            help_text = 'slice.txt'))
+        
+        self.ops.append(OperationFrame(
+            self.opsDict['Operations'], 'Downsample',
+            operations.down_sample,
+            ['Pixel Size:', 'Nyquist:'], ['float','float'], ['', 3],
+            help_text = 'downsample.txt'))
+        
+        self.ops.append(OperationFrame(
+            self.opsDict['Operations'], 'Chambolle denoise',
+            operations.tv_chambolle,
+            ['Weight:', 'Stacks:'], ['float','esint'], [0.1, 1],
+            help_text = 'chambolle.txt'))
+        
+        self.ops.append(OperationFrame(
+            self.opsDict['Filters'], 'Gaussian Blur',
+            operations.gaussian,
+            ['Sigma:'], ['int'], [1],
+            help_text = 'gaussian blur.txt'))
+
+        self.ops.append(OperationFrame(
+            self.opsDict['Filters'], 'Median Blur',
+            operations.median,
+            ['Size:'], ['int'], [3],
+            help_text = 'median blur.txt'))
+
+        self.ops.append(OperationFrame(
+            self.opsDict['Filters'], 'Remove Outliers',
+            operations.remove_outliers,
+            ['Percent:', 'Size:'], ['float', 'int'], [0.1, 3],
+            help_text = 'remove outliers.txt'))
+
+        self.ops.append(OperationFrame(
+            self.opsDict['Stacking'], 'Gaussian Stack',
+            operations.gaussian_stacking,
+            ['Sigma:'], ['float'], [1],
+            help_text = 'gaussian stack.txt'))
+
+        self.ops.append(OperationFrame(
+            self.opsDict['Stacking'], 'Median Stack',
+            operations.median_stacking,
+            ['Frames:'], ['int'], [1],
+            help_text = 'median stack.txt'))
+
+        self.ops.append(OperationFrame(
+            self.opsDict['Other'], 'Level Balance',
+            operations.normalize,
+            ['Clip:'], ['sint'], [3],
+            help_text = 'contrast.txt'))
+
+        self.ops.append(OperationFrame(
+            self.opsDict['Other'], 'Unsharp Mask',
+            operations.unsharp_mask,
+            ['Sigma', 'Threshold:', 'Amount:'], ['float', 'float', 'float'],
+            [1, 5, 0.5],
+            help_text = 'unsharp.txt'))
+        
                                            
 
 
@@ -326,105 +465,181 @@ class MainApp(tk.Frame):
         # Frames
         self.frameIO.grid(row=0, column=0, padx=pad, pady=pad)
         self.frameVisualization.grid(row=0, column=1, padx=pad, pady=pad)
-        self.frameOperations.grid(row=1, column=0, padx=pad, pady=pad,
-                                     columnspan=2)
+##        self.frameOperations.grid(row=1, column=0, padx=pad, pady=pad,
+##                                     columnspan=2, sticky='w')
         # IO frame
         self.butMakeHDF5.grid(row=0, column=0, padx=pad, pady=pad)
         self.butLoadHDF5.grid(row=1, column=0, padx=pad, pady=pad)
+        self.butSaveMovie.grid(row=0, column=1, padx=pad, pady=pad)
+        self.butSaveImages.grid(row=1, column=1, padx=pad, pady=pad)
         # Visualize frame
         self.butViewData.grid(row=0, column=0, padx=pad, pady=pad)
         self.butViewMovie.grid(row=1, column=0, padx=pad, pady=pad)
-        # Operations frame
-        self.frame_slice.grid(row=0, column=0, padx=pad, pady=spad)
-        self.lab_slice_from.grid(row=0, column=1, padx=pad, pady=pad)
-        self.txt_slice_from.grid(row=0, column=2, padx=pad, pady=pad)
-        self.lab_slice_to.grid(row=0, column=3, padx=pad, pady=pad)
-        self.txt_slice_to.grid(row=0, column=4, padx=pad, pady=pad)
-        self.but_slice.grid(row=0, column=0, padx=pad, pady=pad)
-        
-        self.frameChambolle.grid(row=1, column=0, padx=pad, pady=spad)
-        self.labChambolleWeight.grid(row=0, column=1, padx=pad, pady=pad)
-        self.txtChambolleWeight.grid(row=0, column=2, padx=pad, pady=pad)
-        self.labChambolleStack.grid(row=0, column=3, padx=pad, pady=pad)
-        self.txtChambolleStack.grid(row=0, column=4, padx=pad, pady=pad)
-        self.butChambolle.grid(row=0, column=0, padx=pad, pady=pad)
-        
+        #Operations frames
+        for i, name in enumerate(self.opsList):
+            self.opsDict[name].grid(row=1+i, column=0, padx=pad, pady=pad,
+                                    columnspan=2, sticky='ew')
+        # Operations subframes
+        for i, op in enumerate(self.ops):
+            op.grid(row=i, column=0, padx=pad, pady=spad, sticky='w')
+
+
+        # Create tool tips
+        ttp_makeHDF5 = CreateToolTip(self.butMakeHDF5,
+            'Create an hdf5 file from a folder of images.')
+
         
     def loadHDF5(self):
+        global DATA
         file = filedialog.askopenfilename(
             title='Select HDF5 file', defaultextension='.hdf5')
-        self.data = inout.frames_from_hdf5(file)
-        self.rows, self.cols, self.num_frames = self.data.shape
-        self.saveShape()
-
-    def saveShape(self):
-        self.rows, self.cols, self.num_frames = self.data.shape
+        DATA = inout.frames_from_hdf5(file)
         
     def viewData(self):
-        if self.data is None:
-            print('No data is loaded.')
+        global DATA
+        if DATA is None:
+            messagebox.showwarning(
+                "Data Error",
+                ''.join(('No data is loaded.')))
         else:
-            v = visualize.Image_Viewer(self.data, main=False)
+            v = visualize.Image_Viewer(DATA, main=False)
 
     def playMovie(self):
-        if self.data is None:
-            print('No data is loaded.')
-        else:
-            visualize.play_movie(self.data)
-
-
-    def chambolle(self):
-        if self.data is None:
-            print('No data is loaded.')
-        elif int(self.varChambolleStacking.get()) % 2 == 0 and \
-             int(self.varChambolleStacking.get()) >= 0:
+        global DATA
+        if DATA is None:
             messagebox.showwarning(
-                "Input error",
-                ''.join(('Stacking should be an odd integer')))
-        elif user_input_good(self.varChambolleWeight.get(),
-                           'decimal', 'Chambolle Weight') and \
-            user_input_good(self.varChambolleStacking.get(),
-                           'sint', 'Chambolle Stacking'):
-            
-            stacking = int(self.varChambolleStacking.get())
-            stacking = None if stacking < 0 else stacking
-            self.data = operations.tv_chambolle(
-                self.data, weight=float(self.varChambolleWeight.get()),
-                max_stacking=stacking)
+                "Data Error",
+                ''.join(('No data is loaded.')))
+        else:
+            visualize.play_movie(DATA)
 
-    def slice(self):
-        if self.data is None:
-            print('No data is loaded.')
-        elif user_input_good(self.var_slice_from.get(),
-                             'int', 'From') and \
-            user_input_good(self.var_slice_to.get(),
-                            'int', 'To'):
-            f = int(self.var_slice_from.get())
-            t = int(self.var_slice_to.get())
-            if t > self.num_frames:
-                print('Input is out of range.')
-            elif f >= t:
-                print('To must be larger than From.')
-            else:
-                self.data = self.data[:,:,f:t]
-                self.saveShape()
-                print("Dataset sliced.")
+    def saveMovie(self):
+        global DATA
+        if DATA is None:
+            messagebox.showwarning(
+                "Data Error",
+                ''.join(('No data is loaded.')))
+        else:
+            path = filedialog.asksaveasfilename(defaultextension='.mp4')
+            inout.save_movie(DATA, path)
+
+    def saveImages(self):
+        global DATA
+        if DATA is None:
+            messagebox.showwarning(
+                "Data Error",
+                ''.join(('No data is loaded.')))
+        else:
+            path = filedialog.askdirectory()
+            inout.save_images(DATA, path)
+
+
+def slice_dataset(data, f, t):
+    _,_,num_frames = data.shape
+    if t > num_frames:
+        print('Input is out of range.')
+    elif f >= t:
+        print('To must be larger than From.')
+    else:
+        data = data[:,:,f:t]
+        print("Dataset sliced.")
+        return data
 
             
-    
-##class OperationFrame(tk.Frame):
-##
-##    def __init__(self, parent, name, command, param1=None, param1type='int',
-##                 param2=None, param2type='string'):
-##
-##        tk.Frame.__init__(self, parent)
-##        self.name = name
-##        self.param1 = param1
-##        self.param2 = param2
-##        self.param1type = param1type
-##        self.param2type = param2type
-    
+
+class OperationFrame(tk.Frame):
+    global DATA
+    def __init__(self, parent, name, command, params=[], paramtypes=[],
+                 start_vals=None, sticky='w', help_text=None):
+        """
+        Creates a frame containing a button, some labels and entry boxes.
+        The frame calls the appropriate command that is passed to it.
+        The parameters of the command are the params in order.
+        Paramtypes is the type of thing to put in the entrybox.
+        Len(params) must equal len(paramtypes).
+        """
+        
+        tk.Frame.__init__(self, parent)
+        self.name = name
+        self.params = params
+        self.paramtypes = paramtypes
+        self.command = command
+        self.labels = []
+        self.entrys = []
+        self.vars = []
+        self.help_text = help_text
+        pad = 5
+        spad = 2
+        global DATA
+                           
+
+        # Create widgets
+        self.button = tk.Button(self, text=self.name, width=15, height=1,
+                                command=self.check_and_call)
+
+        for param in params:
+            self.vars.append(tk.StringVar())
+            self.labels.append(tk.Label(self, text=param, width=8, anchor='e'))
+            self.entrys.append(tk.Entry(self, textvariable=self.vars[-1],
+                                        width=5))
+
+        # Place widgets.
+        self.button.grid(row=0, column=1, padx=pad, pady=spad, sticky='w')
+        for i in range(len(self.labels)):
+            self.labels[i].grid(row=0, column=2*i+2, padx=0, pady=spad, sticky='w')
+            self.entrys[i].grid(row=0, column=2*i+3, padx=pad, pady=spad, sticky='w')
+
+
+        # Fill in default values
+        if start_vals is not None:
+            for i, val in enumerate(start_vals):
+                self.vars[i].set(str(val))
+
+        # Create tool tip
+        if self.help_text is not None:
+            this_dir, this_filename = os.path.split(__file__)
+            data_path = os.path.join(this_dir, "help", self.help_text)
+            file = open(resource_path(data_path))
+            data = file.read()
+            file.close()
+            ttp = CreateToolTip(self.button, data)
+
+    def check_and_call(self):
+        global DATA
+        cleaned_params = []
+        # error check
+        good = []
+        for var, paramtype in zip(self.vars, self.paramtypes):
+            good.append(user_input_good(var.get(), paramtype, self.name))
+
+        # types
+        integer = ['integer', 'Int', 'int', 'Integer', '0']
+        decimal = ['decimal', 'Dec', 'Decimal', 'dec', '2', 'float']
+        signed_integer = ['sinteger', 'sInt', 'sint', 'sInteger', '1']
+        esint = ['esint']
+
+        if DATA is None:
+            messagebox.showwarning(
+                "Data Error",
+                ''.join(('No data is loaded.')))
+        # clean parameter
+        elif all(good):
+            for var, paramtype in zip(self.vars, self.paramtypes):
+                if paramtype in integer or paramtype in signed_integer \
+                        or paramtype in esint:
+                    cleaned_params.append(int(var.get()))
+                    #print(cleaned_params[-1])
+                if paramtype in decimal:
+                    cleaned_params.append(float(var.get()))
+
+            # call the command
+            if self.command != undo:
+                make_undo()
+            DATA = self.command(DATA, *cleaned_params)
+            
+
+            
 if __name__ == "__main__":     
     myapp = MainApp()
-    myapp.master.title('Denoise')
+    myapp.master.title('SMART-TEM')
     myapp.mainloop() 
