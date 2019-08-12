@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 This module applies global filters to the image sets
 
@@ -20,11 +19,57 @@ import scipy.ndimage as ndim
 from skimage import restoration, morphology
 from skimage.filters import threshold_otsu
 import numpy as np
+import cv2
 import matplotlib.pyplot as plt
+import tifffile as tiff
 
-import inout
-import visualize
+from stuckpy.microscopy import inout
+from stuckpy.microscopy import visualize
 
+
+def polynomial_fit_normalize(im, mask=None, return_fit=False, dtype='float32',
+                             fit_path=None):
+    """
+    Fits a 3D surface to the inensity of pixels using 2nd order poly fit
+    and subtracts the fit from the image to remove trends.
+    """
+    from astropy.modeling import models, fitting
+    rows, cols = im.shape
+    y, x = np.mgrid[:rows,:cols]
+
+    if mask is not None:
+        m = np.ma.masked_array(im, mask=mask)
+    else:
+        m = im
+
+    # Fit the data using astropy
+    p_init = models.Polynomial2D(degree=2)
+    fit_p = fitting.LevMarLSQFitter()
+    with warnings.catch_warnings():
+        # Ignore model linearity warning from the fitter
+        warnings.simplefilter('ignore')
+        p = fit_p(p_init, x, y, m)
+    fit = p(x,y)
+
+    if fit_path is not None:
+        imsave(fit_path, fit.astype('uint8'))
+
+    # subtract fit from image
+    
+    fit_minus_mean = fit - np.mean(fit)
+
+
+    
+    if dtype == 'uint8':
+        im = np.clip(np.subtract(im, fit_minus_mean), 0, 255).astype(dtype)
+    else:
+        im = np.subtract(im, fit_minus_mean).astype(dtype)
+    
+
+    if return_fit:
+        return im, fit
+    else:
+        return im
 
 # update_progress() : Displays or updates a console progress bar
 # Accepts a float between 0 and 1. Any int will be converted to a float.
@@ -73,13 +118,13 @@ def gaussian(image_set, sigma=None):
         print('Please set a filter radius (sigma).  Defaulting to sigma = 1.')
         sigma = 1
 
-    print('Applying guassian filter...', end=' ')
-    start = time.time()
+    #print('Applying guassian filter...', end=' ')
+    #start = time.time()
     try:
         out = filters.gaussian_filter(image_set, (sigma, sigma, 0))
     except RuntimeError: # When there is only one frame
         out = filters.gaussian_filter(image_set, (sigma, sigma))
-    print('Done, took', round(time.time()-start, 2), 'seconds.')
+    #print('Done, took', round(time.time()-start, 2), 'seconds.')
     return out
 
 
@@ -194,68 +239,56 @@ def tv_chambolle(image_set, weight, max_stacking=None, eps=0.0002, verbose=True)
     if num_frames == 1:
         if verbose:
             print("Performing filter on the single frame passed...", end=" ")
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            out = inout.uint8(restoration.denoise_tv_chambolle(
-                image_set, weight=weight, eps=eps))
+        out = restoration.denoise_tv_chambolle(
+            image_set, weight=weight, eps=eps)
     elif max_stacking is None or max_stacking < 0:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            out = inout.uint8(restoration.denoise_tv_chambolle(
-                image_set, weight=weight, eps=eps))
+        out = inout.uint8(restoration.denoise_tv_chambolle(
+            image_set, weight=weight, eps=eps))
     elif not isinstance(max_stacking, int):
         print("Max stacking must be an odd integer")
         return image_set
     elif num_frames <= max_stacking:
         print(("Total number of frames is <= max_stacking. "
                "Stacking not limited."))
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            out = inout.uint8(restoration.denoise_tv_chambolle(
-                image_set, weight=weight, eps=eps))
+        out = inout.uint8(restoration.denoise_tv_chambolle(
+            image_set, weight=weight, eps=eps))
     elif max_stacking < 1:
         print("max_stacking must be greater than 0.")
+        return image_set
+    elif max_stacking % 2 == 0:
+        print("Max stacking must be an odd integer")
         return image_set
     else:
         out = np.zeros((rows, cols, num_frames))
         if max_stacking == 1:
             for i in range(num_frames):
                 if verbose:
-                    if i % 5 == 0:
+                    if i % 10 == 0:
                         visualize.update_progress(i / num_frames)
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    out[:, :, i] = inout.uint8(restoration.denoise_tv_chambolle(
-                        image_set[:, :, i],
-                        weight=weight, eps=eps))
+                out[:, :, i] = inout.uint8(restoration.denoise_tv_chambolle(
+                    image_set[:, :, i],
+                    weight=weight, eps=eps))
         else:
-            half_max = int(max_stacking / 2)
-            adjust = 1 if max_stacking % 2 == 0 else 0 # subtract 1 from bottom half for even stacking
+            half_max = int(max_stacking - 1 / 2)
             for i in range(num_frames):
                 if verbose:
-                    if i % 5 == 0:
+                    if i % 10 == 0:
                         visualize.update_progress(i / num_frames)
-                if i <= half_max - adjust:
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
-                        out[:,:,i] = inout.uint8(
-                            restoration.denoise_tv_chambolle(
-                            image_set[:,:,:max_stacking-1],
-                            weight=weight, eps=eps))[:,:,i]
-                elif num_frames - i <= half_max + 1:
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
-                        out[:, :, i] = inout.uint8(
-                            restoration.denoise_tv_chambolle(
-                            image_set[:,:,-max_stacking:],
-                            weight=weight, eps=eps))[:,:,-1*(num_frames-i)]
+                if i < max_stacking:
+                    out[:,:,i] = inout.uint8(
+                        restoration.denoise_tv_chambolle(
+                        image_set[:,:,:i+half_stack],
+                        weight=weight, eps=eps))[:,:,i]
+                elif num_frames - i > num_frames - max_stacking:
+                    out[:, :, i] = inout.uint8(
+                        restoration.denoise_tv_chambolle(
+                        image_set[:,:,i-half_stack:],
+                        weight=weight, eps=eps))[:,:,-1*(num_frames-i)]
                 else:
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
-                        out[:, :, i] = inout.uint8(
-                            restoration.denoise_tv_chambolle(
-                            image_set[:,:,i-half_max+adjust:i+half_max],
-                            weight=weight, eps=eps))[:,:,half_max-adjust]
+                    out[:, :, i] = inout.uint8(
+                        restoration.denoise_tv_chambolle(
+                        image_set[:,:,i-half_stack:i+half_stack],
+                        weight=weight, eps=eps))[:,:,half_stack]
 
     if verbose:
         print('Done, took', round(time.time() - start, 2), 'seconds.')

@@ -16,12 +16,13 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 from scipy import ndimage
 from PIL import Image
+import cv2
 import h5py
 
 
-from dmreader import digital_micrograph as dm
+from smart_preprocess.dmreader import digital_micrograph as dm
 
-import visualize
+from smart_preprocess import visualize
 
 
 def uint8(img):
@@ -183,7 +184,13 @@ def save_images(frames, folder, normalize=False):
         folder = ''.join((folder,'/'))
     
     for i in range(num_frames):
-        im_path = ''.join((folder, str(i).zfill(6),".tif"))
+        if i < 10:
+            space = '00'
+        elif i < 100:
+            space = '0'
+        else:
+            space = ''
+        im_path = ''.join((folder, space,str(i),".tif"))
         scipy.misc.imsave(im_path,frames[:,:,i])
 
 def get_file_names(folder, ftype=None):

@@ -2,7 +2,8 @@ REMOVE OUTLIERS
 
 Removes extremely dark and extremely bright speckled pixels (known as salt
 and pepper noise).  Works by replacing each extreme pixel with the median
-value of pixels within a neighborhood of pixels.
+value of pixels within a neighborhood of pixels.  This should be done before
+any smoothing.
 
 Percent:
 Upper bottom and lower percentile of pixels to replace.  (Value is in % so

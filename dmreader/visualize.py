@@ -17,7 +17,7 @@ from matplotlib.colors import Normalize
 from skimage.color import gray2rgb, rgb2gray
 import skimage.measure as measure
 import scipy.ndimage.morphology as morphology
-import inout
+from smart_preprocess import inout
 import warnings
 
 class Image_Viewer(tk.Toplevel):
@@ -211,10 +211,7 @@ def showFull(img, title=None, cmap=None, interpolation='none'):
     plt.imshow(img, cmap = cmap, interpolation=interpolation)
     plt.axis('off')
     figManager = plt.get_current_fig_manager()
-    try:
-        figManager.window.showMaximized()
-    except:
-        figManager.window.state('zoomed')
+    figManager.window.showMaximized()   
     if title is None:
         plt.gca().set_position([0, 0, 1, 1])
     else:
@@ -283,10 +280,7 @@ def showSkel(skeleton, mask, dialate=False, title=None, returnSkel=False,
     plt.imshow(skel, cmap = cmap, interpolation='none')
     plt.axis('off')
     figManager = plt.get_current_fig_manager()
-    try:
-        figManager.window.showMaximized()
-    except:
-        figManager.window.state('zoomed')
+    figManager.window.showMaximized()
     if title is None:
         plt.gca().set_position([0, 0, 1, 1])
     else:
@@ -317,10 +311,7 @@ def play_movie(frames, fps=10):
     ani = animation.ArtistAnimation(fig, ims, 1000/fps, True, 1000/fps)
     plt.axis('off')
     figManager = plt.get_current_fig_manager()
-    try:
-        figManager.window.showMaximized()
-    except:
-        figManager.window.state('zoomed')
+    figManager.window.showMaximized()
     plt.gca().set_position([0, 0, 1, 1])
     print('Done, took', round(time.time()-start,2), 'seconds.')
     plt.show()
@@ -473,10 +464,7 @@ def overlayMask(image, mask, color='o', return_overlay=False, animate=False,
             ani = animation.ArtistAnimation(fig, ims, 1000, True, 1000)
             plt.axis('off')
             figManager = plt.get_current_fig_manager()
-            try:
-                figManager.window.showMaximized()
-            except:
-                figManager.window.state('zoomed')
+            figManager.window.showMaximized()
             plt.gca().set_position([0, 0, 1, 0.95])
             plt.title(title)
             fig.canvas.set_window_title('Animated Mask Overlay')

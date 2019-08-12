@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+
 # Author: Joshua Stuckner
 # Date: 2017/06/21
 
@@ -16,9 +17,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import string
 
-from smart_preprocess import inout
-from smart_preprocess import operations
-from smart_preprocess import visualize
+import inout
+import operations
+import visualize
 
 
 DATA = None
@@ -83,7 +84,20 @@ class CreateToolTip(object):
 
             
 def user_input_good(input_string, allowed, boxName=''):
+    """
+    This function checks the input text and displays error messages if the input
+    cannot be converted to the correct datatype.  Returns TRUE if the input is good.
+    Returns FALSE if the input is not good.
 
+    Params
+    ======
+    input_string: The string input by the end user.
+    allowed (string): the datatype that is acceptable.
+
+    Return
+    ======
+    bool: TRUE if the input is ok, FALSE if the input is not ok.
+    """
     # First make sure the box isn't empty
     if len(input_string) == 0:
         messagebox.showwarning(
@@ -230,7 +244,7 @@ class makeHDF5_GUI(tk.Toplevel):
     def selectPaths(self):
         # Select the input folder.
         self.input_path = filedialog.askdirectory(
-            title='Select the movie frame folder')
+            title='Select the image folder')
         if self.input_path == '':
             self.cancel()
 
@@ -277,14 +291,21 @@ class makeHDF5_GUI(tk.Toplevel):
             sampling = np.zeros((rows,cols,10), dtype='uint8')
             mid = int(num_frames/2)
             for i in range(10):
-                sampling[:,:,i] = inout.load(file_paths[mid+i])
+                try:
+                    sampling[:,:,i] = inout.load(file_paths[mid+i])
+                    last_good = i
+                except IndexError:
+                    sampling[:,:,i] = sampling[:,:,last_good]
                                        
             # Display a blurred sampling and select the target area
             sampling = operations.gaussian_stacking(sampling, 3)[:,:,5]
             sampling = operations.gaussian(sampling, 2)
             plt.axis('off')
             figManager = plt.get_current_fig_manager()
-            figManager.window.showMaximized()
+            try:
+                figManager.window.showMaximized()
+            except:
+                figManager.window.state('zoomed')
             plt.gca().set_position([0, 0, 1, 1])
             plt.imshow(sampling, cmap=plt.cm.gray)
             a = selectRect()
@@ -412,13 +433,13 @@ class MainApp(tk.Frame):
         self.ops.append(OperationFrame(
             self.opsDict['Operations'], 'Chambolle denoise',
             operations.tv_chambolle,
-            ['Weight:', 'Stacks:'], ['float','esint'], [0.1, 1],
+            ['Weight:', 'Stacks:'], ['float','sint'], [0.1, 1],
             help_text = 'chambolle.txt'))
         
         self.ops.append(OperationFrame(
             self.opsDict['Filters'], 'Gaussian Blur',
             operations.gaussian,
-            ['Sigma:'], ['int'], [1],
+            ['Sigma:'], ['float'], [1],
             help_text = 'gaussian blur.txt'))
 
         self.ops.append(OperationFrame(
