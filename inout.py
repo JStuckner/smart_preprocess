@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+# -*- coding: utf-8 -*-
 # Author: Joshua Stuckner
 # Date: 2017/06/21
 
