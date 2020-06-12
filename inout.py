@@ -32,7 +32,6 @@ def uint8(img):
 
 
 def load(path):
-    #ERROR, THIS LOADS IMAGES WITH VALUES FROM 0 TO 254 NOT 255!
     dmtypes = ['.dm3', '.dm4']
     if any(t in path for t in dmtypes):
         return dm_to_npy(path)
@@ -46,39 +45,19 @@ def load(path):
 def float32_to_uint8(image, display_min, display_max):
     image = np.array(image, copy=True)
     image = image.clip(display_min, display_max, out=image)
-##    plt.imshow(image, cmap=plt.cm.gray)
-##    plt.show()
     image = np.add(image, -display_min, casting='unsafe')
     image = np.divide(image, (display_max + 1 - display_min) / 256, casting='unsafe')
-
-##    plt.imshow(image, cmap=plt.cm.gray)
-##    plt.show()
     image = image.astype(np.uint8)
-##    plt.imshow(image, cmap=plt.cm.gray)
-##    plt.show()
     return image
 
 def uint16_to_uint8(image, display_min, display_max):
     image = np.array(image, copy=True)
     image = image.clip(display_min, display_max, out=image)
-    #image -= display_min
     image = np.add(image, -display_min, casting='unsafe')
-    #image //= (display_min - display_max + 1) / 256.
     image = np.divide(image, (display_max + 1 - display_min) / 256, casting='unsafe')
     image = image.astype(np.uint8)
     return image
 
-# def save_image(im, save_name, normalize=False):
-#     std = im.std()
-#     vmin = im.min() + std / 3
-#     vmax = im.max() - std / 3
-#     if normalize:
-#         imsave(save_name, )
-#         ims.append([plt.imshow(frames[:, :, i], vmin=vmin, vmax=vmax,
-#                                cmap=plt.cm.gray, animated=True)])
-#     else:
-#         ims.append([plt.imshow(frames[:, :, i], vmin=0, vmax=255,
-#                                cmap=plt.cm.gray, animated=True)])
 
 def save_movie(frames, save_name, fps=20, bit_rate=-1, normalize=False,
                sharpen=False):
@@ -120,39 +99,13 @@ def save_movie(frames, save_name, fps=20, bit_rate=-1, normalize=False,
 
     fig.set_size_inches(cols/100, rows/100)
     
-##    writer = cv2.VideoWriter(save_name, cv2.VideoWriter_fourcc(*'FMP4'), bit_rate,
-##                             (cols, rows), False)
-##    for i in range(num_frames):
-##        writer.write(frames[:,:,i])
-##
-##    writer.release()
-    
     #For normalizing
     if normalize:
         std = frames.std()
         vmin = frames.min()+std/2
-        vmax = frames.max()-std/2
-
-##    FFMpegWriter = animation.writers['ffmpeg']
-##    writer = FFMpegWriter(fps=fps, bitrate=bit_rate, extra_args=['-vcodec', 'libx264',
-##                                                     '-pix_fmt', 'yuv420p'])
-##    fig = plt.figure()
-##    ax = plt.subplot(111)
-##    plt.axis('off')
-##    fig.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
-##    ax.set_frame_on(False)
-##    ax.set_xticks([])
-##    ax.set_yticks([])
-##    plt.axis('off')
-##
-##    im = ax.imshow(frames[:,:,0],interpolation='nearest')
-##    with writer.saving(fig, save_name, dpi=10):
-##        for i in range(num_frames):
-##            ax.imshow(frames[:,:,i],interpolation='nearest')
-##            writer.grab_frame()   
+        vmax = frames.max()-std/2   
     
     for i in range(num_frames):
-        #visualize.update_progress(i / num_frames)
         if sharpen:
             sigma = 1
             alpha = 0.5
@@ -170,10 +123,6 @@ def save_movie(frames, save_name, fps=20, bit_rate=-1, normalize=False,
     writer = animation.writers['ffmpeg'](fps=fps, bitrate=bit_rate,
                          extra_args=['-vcodec', 'libx264',
                                      '-pix_fmt', 'yuv420p'])
-##    writer = animation.writers['ffmpeg'](fps=fps, bitrate=bit_rate,
-##                                         extra_args=['-vcodec', 'libx264',
-##                                                     '-s', '1280x960', #sets frame size
-##                                                     '-pix_fmt', 'yuv420p'])
     ani.save(save_name, writer=writer)
     print('Done, took', round(time.time() - start, 2), 'seconds.')
 
@@ -306,9 +255,6 @@ def dm_to_tiff(input_folder, output_folder, convert_sub_folders=False,
               signal['axes'][0]['units'],
               signal['axes'][0]['scale'], sep=', ')
         output_path = ''.join((output_folder, '/', fname, '.tif'))
-        #signal.save(output_path)
-        #scipy.misc.imsave(output_path, image_data)
-
         scipy.misc.toimage(image_data, cmin=0, cmax=255).save(output_path)
 
 
